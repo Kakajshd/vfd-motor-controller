@@ -237,3 +237,4 @@ MIT License — Xem file [LICENSE](LICENSE).
 
 **Hung** — Staff FA  
 Dự án phát triển nội bộ cho hệ thống điều khiển dây cuộn công nghiệp.
+"# vfd-motor-controller" 
