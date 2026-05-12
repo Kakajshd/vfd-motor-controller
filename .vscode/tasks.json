@@ -1,0 +1,50 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "pio-run-verify",
+			"type": "shell",
+			"command": "C:\\Users\\hungnv2\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-init-and-commit",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"init",
+				"&&",
+				"git",
+				"add",
+				".",
+				"&&",
+				"git",
+				"commit",
+				"-m",
+				"Initial commit"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-init-commit-shell",
+			"type": "shell",
+			"command": "git init && git add . && git commit -m \"Initial commit: ESP32 VFD firmware + Python app\"",
+			"isBackground": false
+		},
+		{
+			"label": "git-init-only",
+			"type": "shell",
+			"command": "git init",
+			"isBackground": false
+		},
+		{
+			"label": "git-init-cmdc",
+			"type": "shell",
+			"command": "cmd /c \"git init\"",
+			"isBackground": false
+		}
+	]
+}
