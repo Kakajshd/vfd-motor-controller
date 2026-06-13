@@ -54,6 +54,10 @@ public:
     bool sendControl(uint16_t cmd) {
         return writeRegister(0x2000, cmd);
     }
+
+    bool writeHoldingRegister(uint16_t reg, uint16_t value) {
+        return writeRegister(reg, value);
+    }
 };
 
 #endif

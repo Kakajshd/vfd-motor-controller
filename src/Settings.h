@@ -21,6 +21,9 @@ struct SystemSettings {
     float boost_escalate_2 = 0.8;   // Giay kich lien tuc de len cap 2
     float boost_escalate_3 = 1.6;   // Giay kich lien tuc de len cap 3
     float boost_decay_time = 5.0;   // Giay on dinh de giam 1 cap
+    // Spike detection runtime tunables (moved from Config.h macros to runtime settings)
+    float dist_spike_rise_cm = 1.5f; // If distance increases > this in one cycle => possible spike
+    float dist_spike_fall_cm = 3.0f; // If distance decreases < -this => accept immediately (new roll)
 };
 
 struct WiFiConfig {
@@ -45,6 +48,14 @@ inline void sanitizeSettings(SystemSettings& settings) {
     settings.boost_escalate_2 = constrain(settings.boost_escalate_2, 0.1f, 20.0f);
     settings.boost_escalate_3 = constrain(settings.boost_escalate_3, settings.boost_escalate_2 + 0.1f, 30.0f);
     settings.boost_decay_time = constrain(settings.boost_decay_time, 0.0f, 60.0f);
+
+    // Spike thresholds: reasonable limits
+    settings.dist_spike_rise_cm = constrain(settings.dist_spike_rise_cm, 0.05f, 100.0f);
+    settings.dist_spike_fall_cm = constrain(settings.dist_spike_fall_cm, 0.05f, 200.0f);
+    // Ensure fall threshold larger than rise threshold for directional detection
+    if (settings.dist_spike_fall_cm <= settings.dist_spike_rise_cm) {
+        settings.dist_spike_fall_cm = settings.dist_spike_rise_cm + 0.5f;
+    }
 
     if (settings.udmax <= settings.udmin) {
         settings.udmax = settings.udmin + 1.0f;
@@ -86,6 +97,8 @@ inline void saveSettings(SystemSettings& settings) {
     bytesWritten += prefs.putFloat("b_esc2", settings.boost_escalate_2);
     bytesWritten += prefs.putFloat("b_esc3", settings.boost_escalate_3);
     bytesWritten += prefs.putFloat("b_decay", settings.boost_decay_time);
+    bytesWritten += prefs.putFloat("dist_rise", settings.dist_spike_rise_cm);
+    bytesWritten += prefs.putFloat("dist_fall", settings.dist_spike_fall_cm);
 
     prefs.end();
 
@@ -169,6 +182,12 @@ inline void loadSettings(SystemSettings& settings) {
     if (!prefs.isKey("b_decay")) { isDirty = true; }
     else { settings.boost_decay_time = prefs.getFloat("b_decay"); }
 
+    if (!prefs.isKey("dist_rise")) { isDirty = true; }
+    else { settings.dist_spike_rise_cm = prefs.getFloat("dist_rise"); }
+
+    if (!prefs.isKey("dist_fall")) { isDirty = true; }
+    else { settings.dist_spike_fall_cm = prefs.getFloat("dist_fall"); }
+
     prefs.end();
     sanitizeSettings(settings);
 
@@ -183,6 +202,7 @@ inline void loadSettings(SystemSettings& settings) {
     Serial.printf("Boost Hold L1/L2/L3: %.2f / %.2f / %.2f s\n", settings.boost_level1_hold, settings.boost_level2_hold, settings.boost_level3_hold);
     Serial.printf("Boost Esc2/Esc3   : %.2f / %.2f s\n", settings.boost_escalate_2, settings.boost_escalate_3);
     Serial.printf("Boost Decay       : %.2f s\n", settings.boost_decay_time);
+    Serial.printf("Spike (rise/fall) : %.2f / %.2f cm\n", settings.dist_spike_rise_cm, settings.dist_spike_fall_cm);
     Serial.println("-------------------------");
     if (migratedLegacyKeys) {
         Serial.println("[SYSTEM] Da xoa key cu: pen/pfmin/pfmax");

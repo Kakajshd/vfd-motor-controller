@@ -14,6 +14,7 @@ struct RuntimeSharedData {
   uint8_t boostLevel = 0;
   float vfdFreq = -1.0f;
   bool vfdOk = false;
+  uint8_t vfdProfile = 0; // 0=MANUAL, 1=AUTO
 };
 
 struct TelemetrySharedData {
@@ -29,6 +30,14 @@ struct TelemetrySharedData {
 
 using OledRotateHandler = void (*)(bool rotate180);
 
+enum class VfdProfileRequest : uint8_t {
+  Manual = 0,
+  Auto = 1,
+  Toggle = 2,
+};
+
+using VfdProfileRequestHandler = void (*)(VfdProfileRequest request);
+
 namespace WiFiWebManager {
 void begin(const char *ssid, const char *pass);
 void serviceReconnect();
@@ -40,7 +49,8 @@ void registerRoutes(
   SemaphoreHandle_t stateMutex,
   RuntimeSharedData &runtimeData,
   TelemetrySharedData &telemetryData,
-  OledRotateHandler oledRotateHandler = nullptr);
+  OledRotateHandler oledRotateHandler = nullptr,
+  VfdProfileRequestHandler vfdProfileRequestHandler = nullptr);
 
 void pushEvent(const RuntimeSharedData &runtime, const char *mode);
 }

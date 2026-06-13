@@ -123,7 +123,8 @@ void registerRoutes(
   SemaphoreHandle_t stateMutex,
   RuntimeSharedData &runtimeData,
   TelemetrySharedData &telemetryData,
-  OledRotateHandler oledRotateHandler) {
+  OledRotateHandler oledRotateHandler,
+  VfdProfileRequestHandler vfdProfileRequestHandler) {
 
   gEvents.onConnect([](AsyncEventSourceClient *client) {
     client->send("connected", "info", millis());
@@ -194,6 +195,12 @@ button{padding:5px 14px;font-weight:bold;border:none;cursor:pointer;color:#fff;f
 <div class="prow"><span class="plbl">UDMAX</span><input type="text" id="i_udmax" name="udmax" value=")RAW";
     html += String(snapshot.udmax, 2);
     html += R"RAW("><span class="pdsc">Khoang cach rong (cm)</span></div>
+<div class="prow"><span class="plbl">DIST RISE</span><input type="text" id="i_dist_rise" name="dist_rise" value=")RAW";
+  html += String(snapshot.dist_spike_rise_cm, 2);
+  html += R"RAW("><span class="pdsc">Ngưỡng phát hiện spike tăng (cm)</span></div>
+<div class="prow"><span class="plbl">DIST FALL</span><input type="text" id="i_dist_fall" name="dist_fall" value=")RAW";
+  html += String(snapshot.dist_spike_fall_cm, 2);
+  html += R"RAW("><span class="pdsc">Ngưỡng nhận cuộn mới khi giảm (cm)</span></div>
 <div class="prow"><span class="plbl">UFMIN</span><input type="text" id="i_ufmin" name="ufmin" value=")RAW";
     html += String(snapshot.ufmin, 2);
     html += R"RAW("><span class="pdsc">Tan so min (Hz)</span></div>
@@ -233,6 +240,10 @@ button{padding:5px 14px;font-weight:bold;border:none;cursor:pointer;color:#fff;f
 </div></form>
 <div class="arow">
   <button class="boled" onclick="doOled()">ROTATE OLED</button>
+</div>
+<div class="arow">
+  <button class="boled" onclick="doVfdProfile('AUTO')">VFD AUTO</button>
+  <button class="boled" onclick="doVfdProfile('MANUAL')">VFD MANUAL</button>
 </div></div>
 <div id="xlog"></div>
 <div class="ftr">Developed by Hung - Staff FA</div>
@@ -269,6 +280,8 @@ function validate(){
   const[h1,ok6]=sf("i_boosttime");
   const[l2,ok7]=sf("i_boost_l2");
   const[l3,ok8]=sf("i_boost_l3");
+  const[drise,ok14]=sf("i_dist_rise");
+  const[dfall,ok15]=sf("i_dist_fall");
   const[h2,ok9]=sf("i_boost_h2");
   const[h3,ok10]=sf("i_boost_h3");
   const[e2,ok11]=sf("i_boost_e2");
@@ -288,6 +301,8 @@ function validate(){
     i_boost_e2:ok11,
     i_boost_e3:ok12&&e3>e2,
     i_boost_decay:ok13&&dc>=0
+    ,i_dist_rise:ok14
+    ,i_dist_fall:ok15&&dfall>drise
   };
   for(const[id,ok]of Object.entries(v))setIC(id,ok);
   return Object.values(v).every(Boolean);
@@ -320,8 +335,14 @@ function connectSSE(){
       document.getElementById("xblv").textContent=d.boost_level>0?"L"+d.boost_level:"--";
       document.getElementById("xbhd").textContent=d.boost?d.boost_remain.toFixed(1):"--";
       document.getElementById("xfreq").textContent=d.freq.toFixed(1)+" Hz";
-      document.getElementById("xmode").textContent=d.mode;
-      if(d.vfd_freq>=0)document.getElementById("xvfd").textContent=d.vfd_freq.toFixed(1)+" Hz ("+(d.vfd_ok?"OK":"FAIL")+")";
+      if(d.mode==="RUN"){
+        document.getElementById("xmode").textContent=(d.vfd_profile===1)?"AUTO":"MANUAL";
+      }else if(d.mode==="TEST"){
+        document.getElementById("xmode").textContent="TEST";
+      }else{
+        document.getElementById("xmode").textContent="STOP";
+      }
+      if(d.vfd_freq>=0)document.getElementById("xvfd").textContent=d.vfd_freq.toFixed(1)+" Hz "+(d.vfd_ok?"OK":"FAIL");
       if(d.mode==="RUN")appendLog("[RUN] D:"+d.dist.toFixed(1)+" | F:"+d.freq.toFixed(1)+"Hz | Boost:L"+d.boost_level+" | Hold:"+d.boost_remain.toFixed(1)+"s");
       else if(d.mode==="TEST")appendLog("[PING] D: "+d.dist.toFixed(1)+" cm");
     }catch(err){}
@@ -366,6 +387,16 @@ function doReset(){
 function doOled(){
   fetch("/oled/toggle",{method:"POST"}).then(r=>{if(r.ok)appendLog("[SYS] OLED rotated");}).catch(()=>{});
 }
+function doVfdProfile(mode){
+  appendLog("[SYS] Set VFD profile: "+mode);
+  fetch("/vfd/profile?mode="+encodeURIComponent(mode),{method:"POST"})
+    .then(async r=>{let j={};try{j=await r.json();}catch(e){};return{r,j};})
+    .then(({r,j})=>{
+      if(r.ok&&j.ok){appendLog("[SYS] VFD profile request OK");}
+      else{appendLog("[SYS] VFD profile failed: "+(j.error||"unknown"));}
+    })
+    .catch(()=>appendLog("[SYS] Network error"));
+}
 document.querySelectorAll("input[type=text]").forEach(el=>{
   el.addEventListener("input",updateBtns);
   el.addEventListener("blur",updateBtns);
@@ -390,16 +421,17 @@ connectSSE();
     } else {
       snapshot = runtimeData;
     }
-    char json[180];
+    char json[260];
     snprintf(json, sizeof(json),
-             "{\"dist\":%.2f,\"freq\":%.2f,\"boost\":%s,\"boost_level\":%u,\"boost_remain\":%.1f,\"vfd_freq\":%.2f,\"vfd_ok\":%s}",
+             "{\"dist\":%.2f,\"freq\":%.2f,\"boost\":%s,\"boost_level\":%u,\"boost_remain\":%.1f,\"vfd_freq\":%.2f,\"vfd_ok\":%s,\"vfd_profile\":%u}",
              snapshot.dist,
              snapshot.freq,
              snapshot.boost ? "true" : "false",
              (unsigned)snapshot.boostLevel,
              snapshot.boostRemain,
              snapshot.vfdFreq,
-             snapshot.vfdOk ? "true" : "false");
+             snapshot.vfdOk ? "true" : "false",
+             (unsigned)snapshot.vfdProfile);
     request->send(200, "application/json", json);
   });
 
@@ -456,6 +488,8 @@ connectSSE();
     if (request->hasParam("boost_e2", true))   next.boost_escalate_2   = request->getParam("boost_e2",    true)->value().toFloat();
     if (request->hasParam("boost_e3", true))   next.boost_escalate_3   = request->getParam("boost_e3",    true)->value().toFloat();
     if (request->hasParam("boost_decay", true))next.boost_decay_time   = request->getParam("boost_decay", true)->value().toFloat();
+    if (request->hasParam("dist_rise", true))  next.dist_spike_rise_cm = request->getParam("dist_rise",  true)->value().toFloat();
+    if (request->hasParam("dist_fall", true))  next.dist_spike_fall_cm = request->getParam("dist_fall",  true)->value().toFloat();
 
     next.boost_level1_pct  = next.bootfactor;
     next.boost_level1_hold = next.boost_time;
@@ -471,6 +505,12 @@ connectSSE();
         || next.boost_level3_hold < 0.0f
         || next.boost_escalate_3 <= next.boost_escalate_2) {
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_settings\"}");
+      return;
+    }
+
+    // Ensure the spike thresholds make directional sense
+    if (!(next.dist_spike_fall_cm > next.dist_spike_rise_cm)) {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_spike_thresholds\"}");
       return;
     }
 
@@ -495,6 +535,35 @@ connectSSE();
     request->send(200, "application/json", "{\"ok\":true}");
   });
 
+  server.on("/vfd/profile", HTTP_POST, [vfdProfileRequestHandler](AsyncWebServerRequest *request) {
+    if (vfdProfileRequestHandler == nullptr) {
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"not_supported\"}");
+      return;
+    }
+
+    String mode = request->hasParam("mode") ? request->getParam("mode")->value() : "";
+    mode.trim();
+    mode.toUpperCase();
+
+    if (mode == "AUTO") {
+      vfdProfileRequestHandler(VfdProfileRequest::Auto);
+      request->send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+    if (mode == "MANUAL") {
+      vfdProfileRequestHandler(VfdProfileRequest::Manual);
+      request->send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+    if (mode == "TOGGLE") {
+      vfdProfileRequestHandler(VfdProfileRequest::Toggle);
+      request->send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_mode\"}");
+  });
+
   server.on("/reset", HTTP_POST, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "ESP32 is restarting...");
     scheduleRestartEsp();
@@ -505,9 +574,9 @@ void pushEvent(const RuntimeSharedData &runtime, const char *mode) {
   if (gEvents.count() == 0) {
     return;
   }
-  char buf[220];
+  char buf[280];
   snprintf(buf, sizeof(buf),
-           "{\"dist\":%.2f,\"freq\":%.2f,\"boost\":%s,\"boost_level\":%u,\"boost_remain\":%.1f,\"vfd_freq\":%.2f,\"vfd_ok\":%s,\"mode\":\"%s\"}",
+           "{\"dist\":%.2f,\"freq\":%.2f,\"boost\":%s,\"boost_level\":%u,\"boost_remain\":%.1f,\"vfd_freq\":%.2f,\"vfd_ok\":%s,\"vfd_profile\":%u,\"mode\":\"%s\"}",
            runtime.dist,
            runtime.freq,
            runtime.boost ? "true" : "false",
@@ -515,6 +584,7 @@ void pushEvent(const RuntimeSharedData &runtime, const char *mode) {
            runtime.boostRemain,
            runtime.vfdFreq,
            runtime.vfdOk ? "true" : "false",
+           (unsigned)runtime.vfdProfile,
            mode);
   gEvents.send(buf, "data", millis());
 }

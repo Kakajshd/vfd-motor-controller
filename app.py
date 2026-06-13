@@ -60,8 +60,12 @@ status_var   = None
 status_label = None
 btn_apply    = None
 btn_reset    = None
+btn_vfd_auto   = None
+btn_vfd_manual = None
 
 ser = None
+
+vfd_profile_state = "MANUAL"
 
 # ================= SERIAL =================
 def open_serial(port):
@@ -143,6 +147,12 @@ def update_button_states():
         rst    = "normal" if app_state in (STATE_READY, STATE_APPLYING) else "disabled"
         btn_apply.config(state=active)
         btn_reset.config(state=rst)
+
+        vfd_state = "normal" if app_state == STATE_READY else "disabled"
+        if btn_vfd_auto is not None:
+            btn_vfd_auto.config(state=vfd_state)
+        if btn_vfd_manual is not None:
+            btn_vfd_manual.config(state=vfd_state)
     except (NameError, AttributeError, tk.TclError):
         pass
 
@@ -375,8 +385,20 @@ def reset_esp():
     except:
         messagebox.showerror("Error", "Failed to send RESET")
 
+
+def set_vfd_profile(mode):
+    if not ser or not ser.is_open:
+        messagebox.showerror("Error", "Not connected")
+        return
+    try:
+        ser.write((f"VFD={mode}\n").encode())
+        append_log(f"[SYS] Sent VFD={mode}")
+    except:
+        messagebox.showerror("Error", "Failed to send VFD command")
+
 # ================= PARSE =================
 def parse_line(line):
+    global vfd_profile_state
 
     # ===== LOAD SETTINGS =====
     if "UD (Min/Max)" in line:
@@ -459,6 +481,31 @@ def parse_line(line):
         set_app_state(STATE_READY, "Applied OK")
         root.after(2000, lambda: set_app_state(STATE_READY) if app_state == STATE_READY else None)
 
+    # ===== VFD PROFILE =====
+    elif "VFD PROFILE" in line.upper():
+        try:
+            val = line.split(":", 1)[1].strip().upper()
+            if "AUTO" in val:
+                vfd_profile_state = "AUTO"
+            elif "MANUAL" in val:
+                vfd_profile_state = "MANUAL"
+            if mode_var.get() not in ("TEST", "STOP"):
+                mode_var.set(vfd_profile_state)
+        except:
+            pass
+
+    elif "[VFDSET]" in line.upper() and "PROFILE" in line.upper() and "APPLIED" in line.upper():
+        try:
+            up = line.upper()
+            if "AUTO" in up:
+                vfd_profile_state = "AUTO"
+            elif "MANUAL" in up:
+                vfd_profile_state = "MANUAL"
+            if mode_var.get() not in ("TEST", "STOP"):
+                mode_var.set(vfd_profile_state)
+        except:
+            pass
+
     # ===== RUN =====
     elif "[RUN]" in line:
         try:
@@ -478,7 +525,7 @@ def parse_line(line):
             target_var.set(freq + " Hz")
             boost_level_var.set(boost_level)
             boost_hold_var.set(boost_hold)
-            mode_var.set("AUTO")
+            mode_var.set(vfd_profile_state or "AUTO")
             if app_state in (STATE_RESTARTING, STATE_ERROR):
                 cancel_pending_timeout()
                 set_app_state(STATE_READY)
@@ -513,16 +560,19 @@ def parse_line(line):
             pass
 
     # ===== VFD =====
-    elif "Set frequency" in line:
-        val = line.split("Set frequency")[1].strip()
+    elif "[VFD]" in line and "Hz OK" in line:
+        try:
+            freq = line.split("[VFD]")[1].split("Hz")[0].strip()
+            vfd_var.set(freq + " Hz (OK)")
+        except:
+            pass
 
-        if "OK" in line:
-            freq = val.replace("OK", "").strip()
-            vfd_var.set(freq + " Hz (OK) ")
-
-        elif "NG" in line:
-            freq = val.replace("NG", "").strip()
-            vfd_var.set(freq + " Hz (FAIL) ")
+    elif "[WARN]" in line and "Set frequency" in line:
+        try:
+            freq = line.split("Set frequency")[1].split("failed")[0].strip()
+            vfd_var.set(freq + " Hz (FAIL)")
+        except:
+            pass
 
 # ================= SERIAL LOOP =================
 def read_serial():
@@ -686,6 +736,14 @@ btn_apply.pack(side="left", padx=4)
 btn_reset = tk.Button(action_row, text="RESET ESP", command=reset_esp,
                       bg="#8b0000", fg="white", width=12, state="disabled")
 btn_reset.pack(side="left", padx=4)
+
+btn_vfd_auto = tk.Button(action_row, text="VFD AUTO", command=lambda: set_vfd_profile("AUTO"),
+                         bg="#006080", fg="white", width=12, state="disabled")
+btn_vfd_auto.pack(side="left", padx=4)
+
+btn_vfd_manual = tk.Button(action_row, text="VFD MANUAL", command=lambda: set_vfd_profile("MANUAL"),
+                           bg="#444444", fg="white", width=12, state="disabled")
+btn_vfd_manual.pack(side="left", padx=4)
 
 set_app_state(STATE_DISCONNECTED)
 
